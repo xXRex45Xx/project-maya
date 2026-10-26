@@ -14,9 +14,12 @@ endif()
 set(_strata_hip_validated gfx1100 gfx1201 gfx1151)   # gfx1151: Strix Halo (v1.1.10)
 set(_strata_hip_community gfx1101 gfx1200)
 set(_strata_hip_unvalidated gfx1010 gfx1011 gfx1012 gfx1102 gfx1103 gfx1030 gfx1031 gfx1034 gfx1150)   # gfx1103: Radeon 780M iGPU, opt-in, portable kernels (no WMMA)
-# gfx908 (AMD Instinct MI100, CDNA1) is wave64, not wave32: it runs through the hip_compat layer's logical-32-lane
-# half-wavefront warp mapping (see hip_compat/intrinsics.hpp). Experimental; validated on a 4x MI100 box.
-set(_strata_hip_wave64 gfx908)
+# gfx908 (AMD Instinct MI100, CDNA1) and gfx906 (Vega 20: Instinct MI50 / MI60, Radeon VII / Radeon Pro VII) are wave64,
+# not wave32: they run through the hip_compat layer's logical-32-lane half-wavefront warp mapping (see
+# hip_compat/intrinsics.hpp). Experimental; gfx908 validated on a 4x MI100 box. gfx906 has no matrix cores (neither WMMA
+# nor MFMA) and ROCm no longer ships its library kernels: hipBLAS needs a rocBLAS rebuilt for gfx906 (docs/AMD_MAYA.md).
+# A wave64 arch beside wave32 ones (gfx906;gfx1200) is one binary: the wave64 helpers are no-ops on a wave32 device pass.
+set(_strata_hip_wave64 gfx908 gfx906)
 # CMake hands HIP a ';' list, but a -DCMAKE_HIP_ARCHITECTURES typed by hand (or ROCm's own Windows tooling) may use
 # spaces, which foreach(IN LISTS) would otherwise treat as one element.
 string(REPLACE " " ";" _strata_hip_norm "${CMAKE_HIP_ARCHITECTURES}")

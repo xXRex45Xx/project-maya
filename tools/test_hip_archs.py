@@ -32,6 +32,15 @@ class HipArchitectureTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("compiler=gfx1200;gfx1201;runtime=gfx1200,gfx1201", r.stdout)
 
+    def test_gfx906_is_wave64_and_mixes_with_wave32(self):
+        r = self.probe("gfx906")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("compiler=gfx906;runtime=gfx906", r.stdout)
+        self.assertIn("wave64", r.stderr + r.stdout)
+        r = self.probe("gfx906:xnack-;gfx1200")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("compiler=gfx906:xnack-;gfx1200;runtime=gfx906,gfx1200", r.stdout)
+
     def test_multi_arch(self):
         r = self.probe("gfx1100;gfx1201;gfx1151")
         self.assertEqual(r.returncode, 0, r.stderr)

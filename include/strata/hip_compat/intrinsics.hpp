@@ -27,8 +27,9 @@ __device__ __forceinline__ int dp4a(int a, int b, int c) {
     // RDNA2 has no sudot4 (that is gfx11+), but it has the plain signed v_dot4_i32_i8 (dot1-insts): the same
     // signed x signed byte products accumulated modulo 2^32, no clamp. CDNA1 gfx908 (MI100) has the same builtin.
     return __builtin_amdgcn_sdot4(a, b, c, false);
-#elif defined(__gfx908__) && __has_builtin(__builtin_amdgcn_sdot4)
-    // CDNA1 (MI100): v_dot4_i32_i8, the same signed dot4 the wave64 compat layer relies on.
+#elif (defined(__gfx908__) || defined(__gfx906__)) && __has_builtin(__builtin_amdgcn_sdot4)
+    // CDNA1 (MI100) and Vega 20 (gfx906: MI50 / MI60, Radeon VII): v_dot4_i32_i8, the same signed dot4 the wave64 compat
+    // layer relies on.
     return __builtin_amdgcn_sdot4(a, b, c, false);
 #elif defined(__gfx1012__) && !defined(STRATA_GFX1012_PORTABLE_DOT)
     // RDNA1 has no native signed dot4. SDWA selects and sign-extends byte
@@ -100,7 +101,7 @@ __device__ __forceinline__ int vcmpne4(int a, int b) {
 
 // CUDA's mask argument describes participating lanes. The current kernel set uses full
 // wave32 masks; reject future partial-mask use instead of silently dropping its semantics.
-// On wave64 (gfx908) the kernels still pass the CUDA wave32 mask 0xffffffff; the half-wavefront mapping below
+// On wave64 (gfx908, gfx906) the kernels still pass the CUDA wave32 mask 0xffffffff; the half-wavefront mapping below
 // interprets it per 32-lane half, so the check is unchanged.
 __device__ __forceinline__ void require_full_wave_mask(uint32_t mask) {
     if (mask != 0xffffffffu) __builtin_trap();
@@ -157,7 +158,7 @@ __device__ __forceinline__ T shfl_sync(uint32_t mask, T value, int source_lane, 
 __device__ __forceinline__ unsigned ballot_sync(uint32_t mask, int predicate) {
     require_full_wave_mask(mask);
 #ifdef STRATA_HIP_WAVE64
-    // wave64 (gfx908): __ballot returns the full 64-lane mask; a CUDA warp here is the caller's own 32-lane
+    // wave64 (gfx908, gfx906): __ballot returns the full 64-lane mask; a CUDA warp here is the caller's own 32-lane
     // half, so lanes 32..63 must see their half's bits, not the first half's. Shift the far half in.
     return static_cast<unsigned>(__ballot(predicate) >> (__lane_id() & 32));
 #else
@@ -181,7 +182,12 @@ __device__ __forceinline__ unsigned ballot_sync(uint32_t mask, int predicate) {
 #define __syncwarp(...) (::strata::hip_compat::syncwarp(__VA_ARGS__))
 // AMD's sleep instruction counts ~64 clocks per unit (~40 ns at 1.7 GHz); the synchronization loops use it as a
 // backoff hint, so a spin loop only needs "back off a little" — scale the unit to the requested nanoseconds.
+#if defined(__AMDGCN_WAVEFRONT_SIZE__) && __AMDGCN_WAVEFRONT_SIZE__ == 32
+// (a wave32 device pass of a mixed build, e.g. gfx906;gfx1200: its own form below)
+#define __nanosleep(cycles) __builtin_amdgcn_s_sleep(1)
+#else
 #define __nanosleep(ns) __builtin_amdgcn_s_sleep((ns) >= 400u ? 8u : 1u)
+#endif
 #else
 #if HIP_VERSION_MAJOR < 7
 #define __syncwarp(...) (::strata::hip_compat::syncwarp(__VA_ARGS__))

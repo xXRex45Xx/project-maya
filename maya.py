@@ -96,7 +96,7 @@ HIP_ARCHS = ("gfx1100", "gfx1200", "gfx1201", "gfx1151")   # gfx1200: RX 9060 / 
 HIP_ARCHS_UNVALIDATED = ("gfx1030",)               # RDNA 2 (RX 6800 / 6900, Radeon PRO V620 / W6800), experimental: not
                                                    # validated on a card; no matrix cores, the portable kernels; compiled
                                                    # only when such a GPU is chosen
-HIP_ARCHS_WAVE64 = ("gfx908",)                      # CDNA 1 (AMD Instinct MI100): wave64, runs through the hip_compat
+HIP_ARCHS_WAVE64 = ("gfx908", "gfx906")             # CDNA 1 (AMD Instinct MI100), Vega 20 (MI50 / MI60, Radeon VII): wave64, through the hip_compat
                                                    # layer's logical-32-lane half-wavefront warp mapping; experimental
 PY_PACKAGES = list(S.PY_PACKAGES)                  # (pillow: pictures in formats other than JPEG/PNG/BMP/GIF)
 CONTEXTS = [8192, 32768, 65536, 131072]
@@ -722,6 +722,18 @@ def rocm_devices_missing(archs) -> list:
     return missing
 
 
+def rocblas_lacks_kernels(root: Path, arch: str) -> bool:
+    """True when the rocBLAS that would load (the first on LD_LIBRARY_PATH holding one, else <root>/lib's) has no Tensile
+    library for this architecture - hipBLAS then aborts on that GPU (gfx906: ROCm no longer builds it; docs/AMD_MAYA.md).
+    Linux only; ROCBLAS_TENSILE_LIBPATH names the library folder itself."""
+    if WIN:
+        return False
+    libdirs = os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep) + [str(root / "lib"), str(root / "lib64")]
+    found = [Path(os.environ["ROCBLAS_TENSILE_LIBPATH"])] if os.environ.get("ROCBLAS_TENSILE_LIBPATH") else []
+    found += [Path(d) / "rocblas" / "library" for d in libdirs if d and list(Path(d).glob("librocblas.so*"))][:1]
+    return not any(list(d.glob(f"*{arch}*")) for d in found)
+
+
 def hip_info(bindir) -> str | None:
     """ROCm's hipInfo (on Windows: lists the GPUs as HIP numbers them, with their architecture)."""
     p = Path(bindir) / "hipInfo.exe" if bindir else None
@@ -775,7 +787,8 @@ def check_hip_pc(a, installed=False) -> dict:
     if not usable:
         fail("no supported AMD GPU found", "this port targets RX 7900 XT / XTX (gfx1100), RX 9060 / 9060 XT (gfx1200), "
              "RX 9070 / AI PRO R9700 (gfx1201), and Strix Halo / Gorgon Halo, Radeon 8050S / 8060S / 8065S (gfx1151); experimental, not "
-             "validated: RX 6800 / 6900, Radeon PRO V620 / W6800 (gfx1030)")
+             "validated: RX 6800 / 6900, Radeon PRO V620 / W6800 (gfx1030); wave64 (experimental): MI100 (gfx908), "
+             "MI50 / MI60 / Radeon VII (gfx906)")
     if WIN and hipinfo and all(g.get("source") == "registry" for g in found):
         warn(f"ROCm's hipInfo sees no AMD GPU (the list above is Windows'): the engine cannot start until it does - "
              f"update AMD's driver (AMD Software: Adrenalin Edition, https://www.amd.com/en/support), restart, and "
@@ -877,6 +890,13 @@ def check_hip_pc(a, installed=False) -> dict:
             ok(f"page file {pf:.0f} GB: Windows' commit holds the GPU's {vram:.0f} GB beside the other programs")
     elif any(hip_unified_memory(g) for g in chosen):
         ok("APU / unified memory: the engine sizes the GPU expert pool from available system RAM")
+    for arch in sorted({g["arch"] for g in chosen if g["arch"] == "gfx906"}):
+        if rocblas_lacks_kernels(root, arch):
+            warn(f"{arch} (Vega 20: MI50 / MI60, Radeon VII) is experimental, and this ROCm has no rocBLAS kernels for it, "
+                 "so hipBLAS aborts on that GPU: rebuild rocBLAS with gfx906 in GPU_TARGETS and put its lib folder first "
+                 "on LD_LIBRARY_PATH - docs/AMD_MAYA.md, 'gfx906 (Vega 20)'")
+        else:
+            ok(f"{arch}: rocBLAS has its kernels (wave64, no matrix cores: the portable kernels)")
     unvalidated = sorted({g["arch"] for g in chosen if g["arch"] in HIP_ARCHS_UNVALIDATED})
     if unvalidated:
         warn(f"{', '.join(unvalidated)} (RDNA 2) is experimental: it builds and has the portable kernels, but Maya has "

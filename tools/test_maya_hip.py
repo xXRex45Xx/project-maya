@@ -61,6 +61,32 @@ class HipSetupTests(unittest.TestCase):
         self.assertEqual([g["index"] for g in pc["gpus"]], [3])
         self.assertIn("gfx1200", maya.HIP_ARCHS)
 
+    def test_gfx906_wave64_beside_gfx1200_is_one_build(self):
+        self.gpus.append({"index": 3, "arch": "gfx906", "vendor": "amd", "name": "Instinct MI60", "vram_gb": 32})
+        self.gpus.append({"index": 4, "arch": "gfx1200", "vendor": "amd", "name": "RX 9060 XT", "vram_gb": 16})
+        self.a.gpu = None
+        self.a.gpus = "3,4"
+        with patch.object(maya, "rocblas_lacks_kernels", return_value=False):
+            pc = maya.check_pc(self.a)
+        self.assertEqual(pc["archs"], ["gfx1200", "gfx906"])
+        self.assertEqual(sorted(g["index"] for g in pc["gpus"]), [3, 4])
+        self.assertIn("gfx906", maya.HIP_ARCHS_WAVE64)
+
+    def test_rocblas_kernel_check_finds_the_first_rocblas_on_the_library_path(self):
+        stock, rebuilt = self.root / "stock", self.root / "rebuilt"
+        for d, files in ((stock, ["TensileLibrary_lazy_gfx1200.dat"]), (rebuilt, ["TensileLibrary_lazy_gfx906.dat"])):
+            (d / "lib/rocblas/library").mkdir(parents=True)
+            (d / "lib/librocblas.so.5").touch()
+            for f in files:
+                (d / "lib/rocblas/library" / f).touch()
+        with patch.dict(os.environ, {"LD_LIBRARY_PATH": ""}, clear=False):
+            self.assertTrue(maya.rocblas_lacks_kernels(stock, "gfx906"))
+            self.assertFalse(maya.rocblas_lacks_kernels(rebuilt, "gfx906"))
+        with patch.dict(os.environ, {"LD_LIBRARY_PATH": str(rebuilt / "lib")}):
+            self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906"))     # the rebuilt one loads first
+        with patch.dict(os.environ, {"ROCBLAS_TENSILE_LIBPATH": str(rebuilt / "lib/rocblas/library")}):
+            self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906"))
+
     def test_rdna2_is_experimental_and_compiled_only_when_chosen(self):
         pc = maya.check_pc(self.a)      # the RX 7900 XT: its own architecture only (#255)
         self.assertEqual(pc["archs"], ["gfx1100"])
@@ -527,9 +553,11 @@ class WindowsDetectionTests(unittest.TestCase):
         rows = json.dumps([{"DriverDesc": "AMD Radeon(TM) 8065S Graphics", "MatchingDeviceId": "pci\\ven_1002&dev_9999"},
                            {"DriverDesc": "AMD Radeon RX 9070 XT", "MatchingDeviceId": "pci\\ven_1002&dev_7550"},
                            {"DriverDesc": "AMD Radeon RX 9060 XT", "MatchingDeviceId": "pci\\ven_1002&dev_9998"},
+                           {"DriverDesc": "AMD Radeon VII", "MatchingDeviceId": "pci\\ven_1002&dev_66af"},
+                           {"DriverDesc": "AMD Radeon VII", "MatchingDeviceId": "pci\\ven_1002&dev_9999"},
                            {"DriverDesc": "AMD Radeon RX 9060 XT", "MatchingDeviceId": "pci\\ven_1002&dev_7590"},
                            {"DriverDesc": "AMD Radeon(TM) Graphics", "MatchingDeviceId": "pci\\ven_1002&dev_164e"}])
-        self.assertEqual([g["arch"] for g in maya.S.parse_display_adapters(rows)], ["gfx1151", "gfx1201", "gfx1200", "gfx1200", "unknown"])
+        self.assertEqual([g["arch"] for g in maya.S.parse_display_adapters(rows)], ["gfx1151", "gfx1201", "gfx1200", "gfx906", "gfx906", "gfx1200", "unknown"])
         self.assertEqual(maya.S.parse_display_adapters(""), [])
         self.assertEqual(maya.S.parse_display_adapters("not json"), [])
 

@@ -1,7 +1,7 @@
 #pragma once
 // Included only by STRATA_ENABLE_HIP builds. CUDA builds use NVIDIA headers.
 #ifdef STRATA_HIP_WAVE64
-// On wave64 cards (gfx908) HIP's own warp-sync builtins would run across the whole 64-lane wavefront and break
+// On wave64 cards (gfx908, gfx906) HIP's own warp-sync builtins would run across the whole 64-lane wavefront and break
 // every kernel's reduction order; disable them and let intrinsics.hpp supply the logical-32-lane-half mapping.
 // Must come before hip_runtime.h. Wave32 builds leave HIP's builtins alone: they compile exactly as before.
 #ifndef HIP_DISABLE_WARP_SYNC_BUILTINS
