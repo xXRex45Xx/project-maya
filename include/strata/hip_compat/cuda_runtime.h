@@ -9,6 +9,7 @@
 #endif
 #endif  // STRATA_HIP_WAVE64
 #include <hip/hip_runtime.h>
+#include "host_lock.hpp"
 #ifdef STRATA_HIP_WAVE64
 #include <atomic>
 #endif
@@ -57,7 +58,7 @@
 #define cudaEventSynchronize hipEventSynchronize
 #define cudaEvent_t hipEvent_t
 #define cudaFree hipFree
-#define cudaFreeHost hipFreeHost
+#define cudaFreeHost(p) (::strata::hip_compat::host_free(p))
 #ifdef STRATA_HIP_WAVE64
 // Mapped host memory is how the GPU and the CPU talk inside a running graph (the doorbells, the staging buffers):
 // a kernel spins on a word the CPU writes and the CPU on a word the kernel writes. On AMD that needs
@@ -96,14 +97,20 @@ inline hipError_t cudaHostAlloc(void** p, size_t bytes, unsigned int flags) {
                             : hipGetDevice(&dev) != hipSuccess || strata_hip_device_wave64(dev);
         if (wave64) flags |= hipHostMallocCoherent;
     }
-    return hipHostMalloc(p, bytes, flags);
+    return ::strata::hip_compat::host_malloc(p, bytes, flags);
 }
 template <typename T>
 inline hipError_t cudaHostAlloc(T** p, size_t bytes, unsigned int flags) {
     return cudaHostAlloc(reinterpret_cast<void**>(p), bytes, flags);
 }
 #else
-#define cudaHostAlloc hipHostMalloc
+inline hipError_t cudaHostAlloc(void** p, size_t bytes, unsigned int flags) {
+    return ::strata::hip_compat::host_malloc(p, bytes, flags);
+}
+template <typename T>
+inline hipError_t cudaHostAlloc(T** p, size_t bytes, unsigned int flags) {
+    return cudaHostAlloc(reinterpret_cast<void**>(p), bytes, flags);
+}
 #endif  // STRATA_HIP_WAVE64
 #define cudaFuncAttributeMaxDynamicSharedMemorySize hipFuncAttributeMaxDynamicSharedMemorySize
 #define cudaGetDevice hipGetDevice
@@ -122,10 +129,10 @@ inline hipError_t cudaHostAlloc(T** p, size_t bytes, unsigned int flags) {
 #define cudaHostAllocMapped hipHostAllocMapped
 #define cudaHostAllocPortable hipHostAllocPortable
 #define cudaHostGetDevicePointer hipHostGetDevicePointer
-#define cudaHostRegister hipHostRegister
+#define cudaHostRegister(p, bytes, flags) (::strata::hip_compat::host_register((p), (bytes), (flags)))
 #define cudaHostRegisterMapped hipHostRegisterMapped
 #define cudaHostRegisterPortable hipHostRegisterPortable
-#define cudaHostUnregister hipHostUnregister
+#define cudaHostUnregister(p) (::strata::hip_compat::host_unregister(p))
 #define cudaLaunchHostFunc hipLaunchHostFunc
 #define cudaMalloc hipMalloc
 #define cudaMallocHost(...) (::strata::hip_compat::malloc_host(__VA_ARGS__))
@@ -164,7 +171,7 @@ inline hipError_t cudaHostAlloc(T** p, size_t bytes, unsigned int flags) {
 namespace strata::hip_compat {
 template <typename T>
 inline hipError_t malloc_host(T** pointer, size_t bytes) {
-    return hipHostMalloc(reinterpret_cast<void**>(pointer), bytes, hipHostMallocDefault);
+    return host_malloc(reinterpret_cast<void**>(pointer), bytes, hipHostMallocDefault);
 }
 }  // namespace strata::hip_compat
 
