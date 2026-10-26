@@ -82,8 +82,8 @@ class HipSetupTests(unittest.TestCase):
         with patch.dict(os.environ, {"LD_LIBRARY_PATH": ""}, clear=False):
             self.assertTrue(maya.rocblas_lacks_kernels(stock, "gfx906"))
             self.assertFalse(maya.rocblas_lacks_kernels(rebuilt, "gfx906"))
-        with patch.dict(os.environ, {"LD_LIBRARY_PATH": str(rebuilt / "lib")}):
-            self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906"))     # the rebuilt one loads first
+        with patch.dict(os.environ, {"LD_PRELOAD": str(rebuilt / "lib/librocblas.so.5")}):
+            self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906"))     # the preloaded one wins
         with patch.dict(os.environ, {"ROCBLAS_TENSILE_LIBPATH": str(rebuilt / "lib/rocblas/library")}):
             self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906"))
 

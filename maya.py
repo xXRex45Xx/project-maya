@@ -723,14 +723,16 @@ def rocm_devices_missing(archs) -> list:
 
 
 def rocblas_lacks_kernels(root: Path, arch: str) -> bool:
-    """True when the rocBLAS that would load (the first on LD_LIBRARY_PATH holding one, else <root>/lib's) has no Tensile
-    library for this architecture - hipBLAS then aborts on that GPU (gfx906: ROCm no longer builds it; docs/AMD_MAYA.md).
-    Linux only; ROCBLAS_TENSILE_LIBPATH names the library folder itself."""
+    """True when the rocBLAS that would load has no Tensile library for this architecture - hipBLAS then aborts on that
+    GPU (gfx906: ROCm no longer builds it; docs/AMD_MAYA.md).  It is the one in LD_PRELOAD (a rebuilt librocblas.so:
+    ROCm's libhipblas has an RPATH to its own folder, which LD_LIBRARY_PATH cannot override), else the first on
+    LD_LIBRARY_PATH, else <root>/lib's.  Linux only; ROCBLAS_TENSILE_LIBPATH names the library folder itself."""
     if WIN:
         return False
-    libdirs = os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep) + [str(root / "lib"), str(root / "lib64")]
+    pre = [Path(p).parent for p in os.environ.get("LD_PRELOAD", "").replace(":", " ").split() if "librocblas" in p]
+    libdirs = pre + [Path(d) for d in os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep) if d] + [root / "lib", root / "lib64"]
     found = [Path(os.environ["ROCBLAS_TENSILE_LIBPATH"])] if os.environ.get("ROCBLAS_TENSILE_LIBPATH") else []
-    found += [Path(d) / "rocblas" / "library" for d in libdirs if d and list(Path(d).glob("librocblas.so*"))][:1]
+    found += [d / "rocblas" / "library" for d in libdirs if list(d.glob("librocblas.so*"))][:1]
     return not any(list(d.glob(f"*{arch}*")) for d in found)
 
 
@@ -893,8 +895,8 @@ def check_hip_pc(a, installed=False) -> dict:
     for arch in sorted({g["arch"] for g in chosen if g["arch"] == "gfx906"}):
         if rocblas_lacks_kernels(root, arch):
             warn(f"{arch} (Vega 20: MI50 / MI60, Radeon VII) is experimental, and this ROCm has no rocBLAS kernels for it, "
-                 "so hipBLAS aborts on that GPU: rebuild rocBLAS with gfx906 in GPU_TARGETS and put its lib folder first "
-                 "on LD_LIBRARY_PATH - docs/AMD_MAYA.md, 'gfx906 (Vega 20)'")
+                 "so hipBLAS aborts on that GPU: rebuild rocBLAS with gfx906 in GPU_TARGETS (tools/hip/build_rocblas_gfx906.sh) and "
+                 "load it with LD_PRELOAD - docs/AMD_MAYA.md, 'gfx906 (Vega 20)'")
         else:
             ok(f"{arch}: rocBLAS has its kernels (wave64, no matrix cores: the portable kernels)")
     unvalidated = sorted({g["arch"] for g in chosen if g["arch"] in HIP_ARCHS_UNVALIDATED})
