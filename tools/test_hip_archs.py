@@ -23,6 +23,15 @@ class HipArchitectureTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("compiler=gfx1201;runtime=gfx1201", r.stdout)
 
+    def test_gfx1200(self):
+        r = self.probe("gfx1200")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("compiler=gfx1200;runtime=gfx1200", r.stdout)
+        self.assertNotIn("not validated", r.stderr)
+        r = self.probe("gfx1200;gfx1201")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("compiler=gfx1200;gfx1201;runtime=gfx1200,gfx1201", r.stdout)
+
     def test_multi_arch(self):
         r = self.probe("gfx1100;gfx1201;gfx1151")
         self.assertEqual(r.returncode, 0, r.stderr)

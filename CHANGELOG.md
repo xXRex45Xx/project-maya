@@ -4,6 +4,11 @@ Every release is on GitHub (Releases) with these notes; every published change m
 dashboard's About > Update (from v1.0.18), or `git pull`, then `./setup.sh` (Windows: `START-MAYA.bat`) - it recompiles
 only what changed and starts; the model is not downloaded again.
 
+## Unreleased
+
+- **AMD RX 9060 / 9060 XT (gfx1200)**: `maya.py` and the installer now detect and build for gfx1200 (the kernels and
+  CMake already supported it). No hipBLASLt tuning tables yet, so prompts use plain hipBLAS.
+
 ## v1.1.28 - 2026-10-25
 
 DeepSeek decodes faster on a single NVIDIA GPU and reaches its full 1M context, the chat stays steady while it writes

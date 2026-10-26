@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Project Maya - set up and start GLM-5.3-Flash or DeepSeek-V4.1-Flash-1017 on your own GPU(s).
-GLM-5.3-Flash: CUDA on Linux and Windows (experimental); HIP: experimental gfx1100/gfx1201/gfx1151 (gfx1030: not
+GLM-5.3-Flash: CUDA on Linux and Windows (experimental); HIP: experimental gfx1100/gfx1200/gfx1201/gfx1151 (gfx1030: not
 validated), Linux and Windows, text only.  DeepSeek-V4.1-Flash-1017: CUDA on Linux, RTX 30 / A100 or newer.
 
     ./maya.sh                 the first run sets everything up and starts the dashboard; later runs just start it
@@ -25,7 +25,7 @@ no tuning step - it balances its own split):
 
   1. checks the PC: NVIDIA GPU(s) of compute capability 7.0+ (6.x, Pascal: experimental), driver, CUDA toolkit (nvcc),
      the C++ compiler (g++; on Windows Visual Studio's Build Tools - 2019/2022 always, 2026 with CUDA 13.2+), CMake,
-     RAM, CPU; HIP checks AMD gfx1100/gfx1201/gfx1151 and ROCm 7 instead
+     RAM, CPU; HIP checks AMD gfx1100/gfx1200/gfx1201/gfx1151 and ROCm 7 instead
      (on Windows AMD's ROCm SDK wheels in .venv, offered when they are not there)
   2. asks: which GPUs (one, or several that split the layers), how much context, which model to download (Maya-S,
      Maya-S24, Maya-M, Maya-M-Derisked or Maya-L; or turboderp's EXL3 quant at 3.05 or 4.05 bits, experimental
@@ -92,7 +92,7 @@ VSTAMP = VBUILD / "MAYA-BUILD.json"
 MIN_CC = 60                                        # Pascal and newer (the GLM path; see arch_setting) ...
 VALIDATED_CC = 70                                  # ... Volta (V100) and newer validated, Pascal experimental (#212)
 MAX_GPUS = 16                                      # the layer split's parts at most (glm_model.hpp, kMaxParts)
-HIP_ARCHS = ("gfx1100", "gfx1201", "gfx1151")        # Maya also supports Strix Halo (unified memory)
+HIP_ARCHS = ("gfx1100", "gfx1200", "gfx1201", "gfx1151")   # gfx1200: RX 9060 / 9060 XT; gfx1151: Strix Halo (unified memory)
 HIP_ARCHS_UNVALIDATED = ("gfx1030",)               # RDNA 2 (RX 6800 / 6900, Radeon PRO V620 / W6800), experimental: not
                                                    # validated on a card; no matrix cores, the portable kernels; compiled
                                                    # only when such a GPU is chosen
@@ -773,8 +773,8 @@ def check_hip_pc(a, installed=False) -> dict:
     for g in found:
         say(f"    {gpu_label(g)} - " + ("can be used" if g in usable else "not supported by Maya's HIP build"))
     if not usable:
-        fail("no supported AMD GPU found", "this port targets RX 7900 XT / XTX (gfx1100), RX 9070 / AI PRO R9700 "
-             "(gfx1201), and Strix Halo / Gorgon Halo, Radeon 8050S / 8060S / 8065S (gfx1151); experimental, not "
+        fail("no supported AMD GPU found", "this port targets RX 7900 XT / XTX (gfx1100), RX 9060 / 9060 XT (gfx1200), "
+             "RX 9070 / AI PRO R9700 (gfx1201), and Strix Halo / Gorgon Halo, Radeon 8050S / 8060S / 8065S (gfx1151); experimental, not "
              "validated: RX 6800 / 6900, Radeon PRO V620 / W6800 (gfx1030)")
     if WIN and hipinfo and all(g.get("source") == "registry" for g in found):
         warn(f"ROCm's hipInfo sees no AMD GPU (the list above is Windows'): the engine cannot start until it does - "
@@ -3987,7 +3987,7 @@ def main() -> int:
     N.alias_env(os.environ)   # (MAYA_* settings under the names the code and the engines read, for all it starts)
     stop_signals()            # (SIGTERM / SIGHUP stop it as Ctrl+C does: the server it runs with it)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--backend", choices=["cuda", "hip"], help="GPU backend (HIP: experimental gfx1100/gfx1201/gfx1151 on Linux and Windows)")
+    ap.add_argument("--backend", choices=["cuda", "hip"], help="GPU backend (HIP: experimental gfx1100/gfx1200/gfx1201/gfx1151 on Linux and Windows)")
     ap.add_argument("--setup", action="store_true", help="set up again instead of starting the installed model")
     ap.add_argument("--check", action="store_true", help="only check this PC and exit")
     ap.add_argument("--no-start", action="store_true", help="set up, but do not start the dashboard")

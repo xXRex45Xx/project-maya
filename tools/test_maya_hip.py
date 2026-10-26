@@ -53,6 +53,14 @@ class HipSetupTests(unittest.TestCase):
         self.assertEqual(pc["gpus"], [self.gpus[1]])
         self.assertEqual(maya.EXE, self.root / "build-hip/maya")
 
+    def test_gfx1200_is_supported_and_compiled_when_chosen(self):
+        self.gpus.append({"index": 3, "arch": "gfx1200", "vendor": "amd", "name": "RX 9060 XT", "vram_gb": 16})
+        self.a.gpu = 3
+        pc = maya.check_pc(self.a)
+        self.assertEqual(pc["archs"], ["gfx1200"])
+        self.assertEqual([g["index"] for g in pc["gpus"]], [3])
+        self.assertIn("gfx1200", maya.HIP_ARCHS)
+
     def test_rdna2_is_experimental_and_compiled_only_when_chosen(self):
         pc = maya.check_pc(self.a)      # the RX 7900 XT: its own architecture only (#255)
         self.assertEqual(pc["archs"], ["gfx1100"])
@@ -518,8 +526,10 @@ class WindowsDetectionTests(unittest.TestCase):
         self.assertAlmostEqual(g["vram_gb"], 96.0)
         rows = json.dumps([{"DriverDesc": "AMD Radeon(TM) 8065S Graphics", "MatchingDeviceId": "pci\\ven_1002&dev_9999"},
                            {"DriverDesc": "AMD Radeon RX 9070 XT", "MatchingDeviceId": "pci\\ven_1002&dev_7550"},
+                           {"DriverDesc": "AMD Radeon RX 9060 XT", "MatchingDeviceId": "pci\\ven_1002&dev_9998"},
+                           {"DriverDesc": "AMD Radeon RX 9060 XT", "MatchingDeviceId": "pci\\ven_1002&dev_7590"},
                            {"DriverDesc": "AMD Radeon(TM) Graphics", "MatchingDeviceId": "pci\\ven_1002&dev_164e"}])
-        self.assertEqual([g["arch"] for g in maya.S.parse_display_adapters(rows)], ["gfx1151", "gfx1201", "unknown"])
+        self.assertEqual([g["arch"] for g in maya.S.parse_display_adapters(rows)], ["gfx1151", "gfx1201", "gfx1200", "gfx1200", "unknown"])
         self.assertEqual(maya.S.parse_display_adapters(""), [])
         self.assertEqual(maya.S.parse_display_adapters("not json"), [])
 
