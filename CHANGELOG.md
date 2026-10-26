@@ -6,6 +6,10 @@ only what changed and starts; the model is not downloaded again.
 
 ## Unreleased
 
+- **AMD Instinct MI50 / MI60, Radeon VII (gfx906), experimental**: a wave64 card on the same half-wavefront layer as
+  the MI100, in one build and layer split beside wave32 cards (`gfx906;gfx1200`). ROCm no longer builds rocBLAS for it:
+  `tools/hip/build_rocblas_gfx906.sh` rebuilds it into a user prefix (docs/AMD_MAYA.md, "gfx906 (Vega 20)").
+
 - **AMD RX 9060 / 9060 XT (gfx1200)**: `maya.py` and the installer now detect and build for gfx1200 (the kernels and
   CMake already supported it). No hipBLASLt tuning tables yet, so prompts use plain hipBLAS.
 

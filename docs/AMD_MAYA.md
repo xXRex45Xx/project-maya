@@ -22,7 +22,7 @@ The first setup downloads about 96.5 GB of weights and verifies the SHA-256
 hash of each shard. `--gguf-dir DIR` uses existing files instead. GPU numbers
 are the kernel KFD topology order shown by `--check`; on the test machine the
 7900 XT is GPU 0, an R9700 is GPU 1, and the integrated GPU is GPU 2. This
-installer accepts `gfx1100`, `gfx1200`, `gfx1201` and `gfx1151` and compiles the binary for the
+installer accepts `gfx1100`, `gfx1200`, `gfx1201`, `gfx1151` and (experimental, below) `gfx906` and compiles the binary for the
 architectures of the chosen cards only (`gfx1100;gfx1201` for that 7900 XT + R9700).
 
 RDNA 2 (`gfx1030`: RX 6800 / 6800 XT / 6900 XT / 6950 XT, Radeon PRO V620 / W6800) is accepted too, as experimental:
@@ -30,6 +30,41 @@ it has been run on a Radeon PRO V620 with ROCm 7 - please report how it goes on 
 cards have no matrix cores (WMMA), so the engine uses its portable kernels there (the prompt attention on the F32
 kernel), and a build for RDNA 2 cards alone needs no rocWMMA headers (ROCm 7 no longer ships them). The ROCm
 installation needs its library kernels (hipBLAS) for `gfx1030`.
+
+### gfx906 (Vega 20: Instinct MI50 / MI60, Radeon VII, Radeon Pro VII)
+
+Experimental, Linux only. Vega 20 is a **wave64** card without matrix cores: like `gfx908` (MI100) it runs Maya's
+wave32 kernels through the `hip_compat` half-wavefront layer (a CUDA warp is one 32-lane half of the 64-lane wavefront),
+with the portable kernels (the prompt attention on the F32 kernel, MMQ, no fused WMMA experts) and `v_dot4_i32_i8` for
+`__dp4a`. It can share a build and a layer split with wave32 cards: `-DCMAKE_HIP_ARCHITECTURES='gfx906;gfx1200'`
+(setup does this when both are chosen, e.g. `./maya.sh --backend hip --gpus 1,0`); the wave64 helpers are no-ops in the
+wave32 device passes. Tried on an Instinct MI60 32 GB (`gfx906:sramecc+:xnack-`) beside an RX 9060 XT on ROCm 10.1.
+
+**ROCm no longer builds rocBLAS for gfx906**, so hipBLAS (which Maya's prompt path uses) aborts on that GPU:
+
+```
+rocBLAS error: Cannot read /opt/rocm/lib/rocblas/library/TensileLibrary.dat: Illegal seek for GPU arch : gfx906
+```
+
+The rocBLAS source still has gfx906 (the `vega20` Tensile logic files); only the packages leave it out. Rebuild it
+from the rocm-libraries tag of the installed ROCm, into a user prefix (nothing under `/opt/rocm` changes, no root):
+
+```bash
+tools/hip/build_rocblas_gfx906.sh          # gfx906 + the machine's other AMD GPUs; 1-3 hours, ~15 GB of disk
+export LD_PRELOAD=$HOME/local/rocm-gfx906/lib/librocblas.so.5
+./maya.sh --backend hip --gpus 1,0 --env LD_PRELOAD=$HOME/local/rocm-gfx906/lib/librocblas.so.5
+```
+
+- The rebuilt rocBLAS **replaces the system one for the whole process**, so it must carry every architecture in the
+  PC (`OTHER_TARGETS`, by default the other GPUs `rocm_agent_enumerator` lists).
+- `LD_PRELOAD`, not `LD_LIBRARY_PATH`: ROCm's `libhipblas` has an `RPATH` to its own folder, which `LD_LIBRARY_PATH`
+  cannot override. The rebuilt library finds its own Tensile files next to itself.
+- Setup warns when the rocBLAS that would load has no gfx906 files (`--check` shows it); `ROCBLAS_TENSILE_LIBPATH`
+  names a library folder directly.
+- hipBLASLt does not support gfx906: no tuning table is used (plain hipBLAS), and nothing may call hipBLASLt directly
+  on it (the DeepSeek prompt path's `ds4_lt.cu` does).
+- A card with `sramecc-` (some Radeon VII / MI50) needs the build pinned to its ISA instead (`gfx906:sramecc-:xnack-`),
+  see [rocm-gfx906-sramecc-fix](https://github.com/Intermountainh8ter/rocm-gfx906-sramecc-fix).
 
 Configs are named `maya-<quant>-hip.json` and
 select the AMD device through `HIP_VISIBLE_DEVICES`.

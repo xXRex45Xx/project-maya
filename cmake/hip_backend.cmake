@@ -37,7 +37,7 @@ foreach(_arch IN LISTS _strata_hip_norm)
   elseif(_base IN_LIST _strata_hip_unvalidated)
     message(WARNING "Maya HIP: ${_base} builds, but it is not validated on a real card yet; please report results")
   elseif(_base IN_LIST _strata_hip_wave64)
-    message(STATUS "Maya HIP: ${_base} is a wave64 CDNA card running through the half-wavefront compat layer (experimental)")
+    message(STATUS "Maya HIP: ${_base} is a wave64 card (CDNA / Vega) running through the half-wavefront compat layer (experimental)")
   else()
     message(FATAL_ERROR
       "Maya's HIP build supports wave32 gfx1100, gfx1101, gfx1151, gfx1200 and gfx1201 (unvalidated: ${_strata_hip_unvalidated}; "
