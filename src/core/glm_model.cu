@@ -1456,6 +1456,52 @@ static double host_read_bps() {
     return sink.load() == 1 ? best + 1.0 : best;   // (the sum keeps the reads)
 }
 
+#if defined(STRATA_USE_HIP)
+// a device's memory speed (bytes/s) from a timed device-to-device copy (it reads and writes each byte), 0 when it
+// cannot be measured.  HIP's memory clock is the bus clock: 2 x clock x width is right for HBM (MI60: 1024 GB/s) but
+// an eighth of a GDDR6 card's (RX 9060 XT: 1258 MHz x 128 bits = 40 GB/s of ~320), which put a split of the two on the
+// HBM card almost whole.  STRATA_SPLIT_BW_ATTR=1: the attribute formula as before.
+static double device_copy_bps(int dev) {
+    static const bool attr = getenv("STRATA_SPLIT_BW_ATTR") && getenv("STRATA_SPLIT_BW_ATTR")[0] == '1';
+    if (attr) return 0.0;
+    constexpr size_t kBytes = (size_t) 256 << 20;
+    constexpr int kReps = 4;   // the first copy warms the clocks, the rest are timed
+    int cur = 0;
+    cudaGetDevice(&cur);
+    if (cudaSetDevice(dev) != cudaSuccess) {
+        cudaGetLastError();
+        return 0.0;
+    }
+    void* a = nullptr;
+    void* b = nullptr;
+    cudaEvent_t e0 = nullptr, e1 = nullptr;
+    double best = 0.0;
+    if (cudaMalloc(&a, kBytes) == cudaSuccess && cudaMalloc(&b, kBytes) == cudaSuccess &&
+        cudaEventCreate(&e0) == cudaSuccess && cudaEventCreate(&e1) == cudaSuccess &&
+        cudaMemset(a, 1, kBytes) == cudaSuccess) {
+        for (int r = 0; r < kReps; ++r) {
+            float ms = 0.0f;
+            if (cudaEventRecord(e0, nullptr) != cudaSuccess ||
+                cudaMemcpyAsync(b, a, kBytes, cudaMemcpyDeviceToDevice, nullptr) != cudaSuccess ||
+                cudaEventRecord(e1, nullptr) != cudaSuccess || cudaEventSynchronize(e1) != cudaSuccess ||
+                cudaEventElapsedTime(&ms, e0, e1) != cudaSuccess) {
+                best = 0.0;
+                break;
+            }
+            if (r > 0 && ms > 0) best = std::max(best, 2.0 * (double) kBytes / (ms * 1e-3));
+        }
+    }
+    cudaGetLastError();
+    if (e0) cudaEventDestroy(e0);
+    if (e1) cudaEventDestroy(e1);
+    if (a) cudaFree(a);
+    if (b) cudaFree(b);
+    cudaGetLastError();
+    cudaSetDevice(cur);
+    return best;
+}
+#endif
+
 // ---------------------------------------------------------------- --layer-split auto: Strata's split search
 // Every placement of the layers on the GPUs is priced by the decode time it predicts, and the cheapest one that can
 // start is taken - Strata's `--layer-split auto` (src/program/generate.cpp), with this engine's own measured terms
@@ -1689,7 +1735,8 @@ static std::vector<int> glm_search_bounds(const std::string& pack_dir, int64_t m
         if (!cv.empty()) return cv[(size_t) std::min<int64_t>(s, (int64_t) cv.size() - 1)];
         return 1.0 - std::pow(1.0 - (double) s / g.n_expert, cover_b);
     };
-    // the cards: free VRAM, memory bandwidth (the bus: 2 x memory clock x width); the host's RAM read speed
+    // the cards: free VRAM, memory bandwidth (the bus: 2 x memory clock x width; on HIP a timed copy, device_copy_bps);
+    // the host's RAM read speed
     struct Card {
         int dev;
         double free, total, bw;
@@ -1713,6 +1760,9 @@ static std::vector<int> glm_search_bounds(const std::string& pack_dir, int64_t m
         c.free = (double) fr;
         c.total = (double) tot;
         c.bw = 2.0 * (double) khz * 1e3 * (double) bits / 8.0;
+#if defined(STRATA_USE_HIP)
+        if (const double m = device_copy_bps(d); m > 0) c.bw = m;   // (the bus clock undercounts GDDR6 8x)
+#endif
         cards.push_back(c);
     }
     cudaSetDevice(cur);
