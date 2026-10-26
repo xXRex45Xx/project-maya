@@ -121,6 +121,13 @@ struct HipLtDescriptors {
 std::unique_ptr<HipLtState> create_hipblaslt_state(void* workspace, size_t workspace_bytes) {
     const char* path = std::getenv("STRATA_HIPBLASLT_TUNING");
     if (!path || !*path) return nullptr;
+    // hipBLASLt has no gfx906 (Vega 20) kernels: a layer split's tables may name the other cards, never that one
+    int lt_device = 0;
+    hipDeviceProp_t lt_properties{};
+    if (hipGetDevice(&lt_device) == hipSuccess && hipGetDeviceProperties(&lt_properties, lt_device) == hipSuccess &&
+        std::string(lt_properties.gcnArchName).rfind("gfx906", 0) == 0) {
+        return nullptr;
+    }
 
     auto state = std::make_unique<HipLtState>();
     state->workspace = workspace;

@@ -9,6 +9,9 @@
 #endif
 #endif  // STRATA_HIP_WAVE64
 #include <hip/hip_runtime.h>
+#ifdef STRATA_HIP_WAVE64
+#include <atomic>
+#endif
 // CUDA's annotation avoids per-thread copies of const kernel parameters. HIP
 // passes the same const values without this CUDA-only optimization annotation.
 #ifndef __grid_constant__
@@ -59,10 +62,40 @@
 // Mapped host memory is how the GPU and the CPU talk inside a running graph (the doorbells, the staging buffers):
 // a kernel spins on a word the CPU writes and the CPU on a word the kernel writes. On AMD that needs
 // FINE-GRAINED (coherent) memory — coarse-grained host memory may sit in the GPU's L2 for the whole kernel and
-// the spin never sees the other side. Wave64 builds make every mapped allocation coherent; wave32 builds keep
-// the plain hipHostMalloc of old (the Strix Halo / RDNA and APU paths depend on that behaviour).
+// the spin never sees the other side. Wave64 builds make a mapped allocation coherent when a wave64 GPU may read it;
+// wave32 GPUs keep the plain hipHostMalloc of old (the Strix Halo / RDNA and APU paths depend on that behaviour).
+// A wave64 arch beside wave32 ones (gfx906;gfx1200) is one binary, so this is decided per device at run time: a
+// portable allocation (any GPU may read it) is coherent when any visible GPU is wave64, any other one when the current
+// GPU is.
+inline bool strata_hip_device_wave64(int dev) {
+    static std::atomic<int> cache[64]{};   // 0 not probed yet, 1 wave32, 2 wave64
+    if (dev < 0 || dev >= 64) return true;
+    int c = cache[dev].load(std::memory_order_relaxed);
+    if (!c) {
+        int ws = 64;
+        if (hipDeviceGetAttribute(&ws, hipDeviceAttributeWarpSize, dev) != hipSuccess) ws = 64;
+        c = ws == 64 ? 2 : 1;
+        cache[dev].store(c, std::memory_order_relaxed);
+    }
+    return c == 2;
+}
+inline bool strata_hip_any_wave64() {
+    static const bool any = [] {
+        int n = 0;
+        if (hipGetDeviceCount(&n) != hipSuccess) return true;
+        for (int d = 0; d < n; ++d)
+            if (strata_hip_device_wave64(d)) return true;
+        return false;
+    }();
+    return any;
+}
 inline hipError_t cudaHostAlloc(void** p, size_t bytes, unsigned int flags) {
-    if (flags & hipHostMallocMapped) flags |= hipHostMallocCoherent;
+    if (flags & hipHostMallocMapped) {
+        int dev = 0;
+        const bool wave64 = (flags & hipHostMallocPortable) ? strata_hip_any_wave64()
+                            : hipGetDevice(&dev) != hipSuccess || strata_hip_device_wave64(dev);
+        if (wave64) flags |= hipHostMallocCoherent;
+    }
     return hipHostMalloc(p, bytes, flags);
 }
 template <typename T>

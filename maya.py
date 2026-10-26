@@ -722,16 +722,18 @@ def rocm_devices_missing(archs) -> list:
     return missing
 
 
-def rocblas_lacks_kernels(root: Path, arch: str) -> bool:
+def rocblas_lacks_kernels(root: Path, arch: str, env: dict | None = None) -> bool:
     """True when the rocBLAS that would load has no Tensile library for this architecture - hipBLAS then aborts on that
     GPU (gfx906: ROCm no longer builds it; docs/AMD_MAYA.md).  It is the one in LD_PRELOAD (a rebuilt librocblas.so:
     ROCm's libhipblas has an RPATH to its own folder, which LD_LIBRARY_PATH cannot override), else the first on
-    LD_LIBRARY_PATH, else <root>/lib's.  Linux only; ROCBLAS_TENSILE_LIBPATH names the library folder itself."""
+    LD_LIBRARY_PATH, else <root>/lib's.  Linux only; ROCBLAS_TENSILE_LIBPATH names the library folder itself.  `env`
+    (the engine's --env values) is read over this process's environment: the engine is the process that loads it."""
     if WIN:
         return False
-    pre = [Path(p).parent for p in os.environ.get("LD_PRELOAD", "").replace(":", " ").split() if "librocblas" in p]
-    libdirs = pre + [Path(d) for d in os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep) if d] + [root / "lib", root / "lib64"]
-    found = [Path(os.environ["ROCBLAS_TENSILE_LIBPATH"])] if os.environ.get("ROCBLAS_TENSILE_LIBPATH") else []
+    e = {**os.environ, **(env or {})}
+    pre = [Path(p).parent for p in e.get("LD_PRELOAD", "").replace(":", " ").split() if "librocblas" in p]
+    libdirs = pre + [Path(d) for d in e.get("LD_LIBRARY_PATH", "").split(os.pathsep) if d] + [root / "lib", root / "lib64"]
+    found = [Path(e["ROCBLAS_TENSILE_LIBPATH"])] if e.get("ROCBLAS_TENSILE_LIBPATH") else []
     found += [d / "rocblas" / "library" for d in libdirs if list(d.glob("librocblas.so*"))][:1]
     return not any(list(d.glob(f"*{arch}*")) for d in found)
 
@@ -893,10 +895,10 @@ def check_hip_pc(a, installed=False) -> dict:
     elif any(hip_unified_memory(g) for g in chosen):
         ok("APU / unified memory: the engine sizes the GPU expert pool from available system RAM")
     for arch in sorted({g["arch"] for g in chosen if g["arch"] == "gfx906"}):
-        if rocblas_lacks_kernels(root, arch):
+        if rocblas_lacks_kernels(root, arch, parse_env(getattr(a, "env", None) or [])):
             warn(f"{arch} (Vega 20: MI50 / MI60, Radeon VII) is experimental, and this ROCm has no rocBLAS kernels for it, "
                  "so hipBLAS aborts on that GPU: rebuild rocBLAS with gfx906 in GPU_TARGETS (tools/hip/build_rocblas_gfx906.sh) and "
-                 "load it with LD_PRELOAD - docs/AMD_MAYA.md, 'gfx906 (Vega 20)'")
+                 "load it with --env LD_PRELOAD=<prefix>/lib/librocblas.so.5 - docs/AMD_MAYA.md, 'gfx906 (Vega 20)'")
         else:
             ok(f"{arch}: rocBLAS has its kernels (wave64, no matrix cores: the portable kernels)")
     unvalidated = sorted({g["arch"] for g in chosen if g["arch"] in HIP_ARCHS_UNVALIDATED})

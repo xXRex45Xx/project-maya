@@ -26,9 +26,18 @@ BOOST_VERSION=${BOOST_VERSION:-1.86.0}
 MSGPACK_TAG=${MSGPACK_TAG:-cpp-6.1.1}
 
 # the rocm-libraries tag of the installed ROCm (10.1.0 -> therock-10.1); TAG= overrides
+# (TheRock's /opt/rocm keeps it in core-<major.minor>/.info/version, behind the core symlink, not .info/version)
 if [ -z "${TAG:-}" ]; then
-  ver=$(cat "$ROCM_PATH"/.info/version 2>/dev/null || true)
-  TAG="therock-$(echo "$ver" | cut -d. -f1,2)"
+  ver=""
+  for f in "$ROCM_PATH"/.info/version "$ROCM_PATH"/core/.info/version "$ROCM_PATH"/core-*/.info/version; do
+    [ -f "$f" ] && ver=$(head -1 "$f") && [ -n "$ver" ] && break
+  done
+  mm=$(echo "$ver" | grep -oE '^[0-9]+\.[0-9]+' || true)
+  if [ -z "$mm" ]; then
+    echo "Cannot tell the ROCm version under $ROCM_PATH (no .info/version): set TAG, e.g. TAG=therock-10.1" >&2
+    exit 1
+  fi
+  TAG="therock-$mm"
 fi
 echo "ROCm: $ROCM_PATH   rocm-libraries tag: $TAG   prefix: $PREFIX   work: $WORK"
 
@@ -79,5 +88,5 @@ cmake --install build-rocblas
 lib=$(ls -d "$PREFIX"/lib*/ 2>/dev/null | head -1)
 echo
 echo "Done. Load the rebuilt rocBLAS ahead of the system one (it finds its own Tensile library next to itself):"
-echo "  export LD_PRELOAD=${lib%/}/librocblas.so.5"
-echo "(Maya: ./maya.sh --env LD_PRELOAD=${lib%/}/librocblas.so.5, or export it before ./maya.sh)"
+echo "  LD_PRELOAD=${lib%/}/librocblas.so.5"
+echo "(Maya: ./maya.sh --env LD_PRELOAD=${lib%/}/librocblas.so.5 - the engine's environment only)"

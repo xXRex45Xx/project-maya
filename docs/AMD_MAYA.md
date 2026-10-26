@@ -38,7 +38,7 @@ wave32 kernels through the `hip_compat` half-wavefront layer (a CUDA warp is one
 with the portable kernels (the prompt attention on the F32 kernel, MMQ, no fused WMMA experts) and `v_dot4_i32_i8` for
 `__dp4a`. It can share a build and a layer split with wave32 cards: `-DCMAKE_HIP_ARCHITECTURES='gfx906;gfx1200'`
 (setup does this when both are chosen, e.g. `./maya.sh --backend hip --gpus 1,0`); the wave64 helpers are no-ops in the
-wave32 device passes. Tried on an Instinct MI60 32 GB (`gfx906:sramecc+:xnack-`) beside an RX 9060 XT on ROCm 10.1.
+wave32 device passes, and mapped host memory is made coherent (fine-grained) only where a wave64 GPU reads it. Tried on an Instinct MI60 32 GB (`gfx906:sramecc+:xnack-`) beside an RX 9060 XT on ROCm 10.1.
 
 **ROCm no longer builds rocBLAS for gfx906**, so hipBLAS (which Maya's prompt path uses) aborts on that GPU:
 
@@ -51,18 +51,20 @@ from the rocm-libraries tag of the installed ROCm, into a user prefix (nothing u
 
 ```bash
 tools/hip/build_rocblas_gfx906.sh          # gfx906 + the machine's other AMD GPUs; 1-3 hours, ~15 GB of disk
-export LD_PRELOAD=$HOME/local/rocm-gfx906/lib/librocblas.so.5
 ./maya.sh --backend hip --gpus 1,0 --env LD_PRELOAD=$HOME/local/rocm-gfx906/lib/librocblas.so.5
 ```
 
 - The rebuilt rocBLAS **replaces the system one for the whole process**, so it must carry every architecture in the
   PC (`OTHER_TARGETS`, by default the other GPUs `rocm_agent_enumerator` lists).
 - `LD_PRELOAD`, not `LD_LIBRARY_PATH`: ROCm's `libhipblas` has an `RPATH` to its own folder, which `LD_LIBRARY_PATH`
-  cannot override. The rebuilt library finds its own Tensile files next to itself.
-- Setup warns when the rocBLAS that would load has no gfx906 files (`--check` shows it); `ROCBLAS_TENSILE_LIBPATH`
-  names a library folder directly.
-- hipBLASLt does not support gfx906: no tuning table is used (plain hipBLAS), and nothing may call hipBLASLt directly
-  on it (the DeepSeek prompt path's `ds4_lt.cu` does).
+  cannot override. The rebuilt library finds its own Tensile files next to itself. Pass it with `--env` (the engine's
+  environment), not `export`: an exported `LD_PRELOAD` also loads it into Python, CMake and the compiler.
+- The script takes the rocm-libraries tag from the installed ROCm's version (`.info/version`, on TheRock's layout
+  `core-<major.minor>/.info/version`); set `TAG=therock-10.1` when it cannot tell.
+- Setup warns when the rocBLAS that would load has no gfx906 files (`--check` shows it, reading `--env` too);
+  `ROCBLAS_TENSILE_LIBPATH` names a library folder directly.
+- hipBLASLt does not support gfx906: that GPU keeps plain hipBLAS. Neither the GLM prompt GEMMs (tuning tables of the
+  other cards) nor the DeepSeek prompt path (`ds4_lt.cu`) create a hipBLASLt handle on it.
 - A card with `sramecc-` (some Radeon VII / MI50) needs the build pinned to its ISA instead (`gfx906:sramecc-:xnack-`),
   see [rocm-gfx906-sramecc-fix](https://github.com/Intermountainh8ter/rocm-gfx906-sramecc-fix).
 

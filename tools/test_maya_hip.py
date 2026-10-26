@@ -86,6 +86,14 @@ class HipSetupTests(unittest.TestCase):
             self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906"))     # the preloaded one wins
         with patch.dict(os.environ, {"ROCBLAS_TENSILE_LIBPATH": str(rebuilt / "lib/rocblas/library")}):
             self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906"))
+        preload = {"LD_PRELOAD": str(rebuilt / "lib/librocblas.so.5")}   # --env LD_PRELOAD=..., not exported
+        self.assertFalse(maya.rocblas_lacks_kernels(stock, "gfx906", preload))
+        self.a.env = [f"LD_PRELOAD={preload['LD_PRELOAD']}"]
+        self.gpus.append({"index": 3, "arch": "gfx906", "vendor": "amd", "name": "Instinct MI60", "vram_gb": 32})
+        self.a.gpu = 3
+        with patch.object(maya, "rocblas_lacks_kernels", return_value=False) as lacks:
+            maya.check_pc(self.a)
+        self.assertEqual(lacks.call_args.args[2], preload)
 
     def test_rdna2_is_experimental_and_compiled_only_when_chosen(self):
         pc = maya.check_pc(self.a)      # the RX 7900 XT: its own architecture only (#255)

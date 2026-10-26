@@ -121,11 +121,14 @@ bool gemm(void* stream, const uint16_t* W, int n, int k, const uint16_t* x, int 
     }
     if (!d.tried) {
         d.tried = true;
-        d.live = hipblasLtCreate(&d.h) == HIPBLAS_STATUS_SUCCESS && hipMalloc(&d.ws, kWorkspace) == hipSuccess;
-        if (!d.live) std::fprintf(stderr, "ds4 gemm: hipBLASLt unavailable on device %d - hipBLAS instead\n", dev);
         hipDeviceProp_t p{};
+        const bool props = hipGetDeviceProperties(&p, dev) == hipSuccess;
+        // hipBLASLt has no gfx906 (Vega 20) kernels: that GPU keeps hipBLAS, without a handle created for it
+        const bool no_lt = props && std::string(p.gcnArchName).rfind("gfx906", 0) == 0;
+        d.live = !no_lt && hipblasLtCreate(&d.h) == HIPBLAS_STATUS_SUCCESS && hipMalloc(&d.ws, kWorkspace) == hipSuccess;
+        if (!d.live) std::fprintf(stderr, "ds4 gemm: hipBLASLt unavailable on device %d - hipBLAS instead\n", dev);
         int ver = 0;
-        if (d.live && hipGetDeviceProperties(&p, dev) == hipSuccess &&
+        if (d.live && props &&
             hipblasLtGetVersion(d.h, &ver) == HIPBLAS_STATUS_SUCCESS) {
             std::string arch(p.gcnArchName);
             const size_t colon = arch.find(':');
