@@ -40,6 +40,9 @@ __device__ __forceinline__ uint32_t unpack_ksigns(const uint8_t v) {
     return s * 0x01010101;
 }
 __device__ __forceinline__ int2 get_int_from_table_16(const int& q4, const int8_t* table) {
+#if defined(__HIPCC__)
+    return ::strata::hip_compat::table16_lookup(q4, table);   // (HIP: 4 + 2 v_perm_b32, bit-identical)
+#else
     const uint32_t* table32 = (const uint32_t*) table;
     uint32_t tmp[2];
     const uint32_t low_high_selection_indices = (0x32103210 | ((q4 & 0x88888888) >> 1));
@@ -51,6 +54,7 @@ __device__ __forceinline__ int2 get_int_from_table_16(const int& q4, const int8_
         tmp[i] = __byte_perm(low, high, low_high_selection_indices >> shift);
     }
     return make_int2(__byte_perm(tmp[0], tmp[1], 0x6420), __byte_perm(tmp[0], tmp[1], 0x7531));
+#endif
 }
 #define ggml_cuda_dp4a(a, b, c) __dp4a((a), (b), (c))
 

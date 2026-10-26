@@ -417,6 +417,9 @@ __device__ __align__(4) int8_t iq4nl_values[16] = {
 };
 
 __device__ __forceinline__ int2 iq4_table_lookup(int q4) {
+#if defined(__HIPCC__)
+    return ::strata::hip_compat::table16_lookup(q4, iq4nl_values);   // (HIP: 4 + 2 v_perm_b32, bit-identical)
+#else
     const uint32_t* table32 = reinterpret_cast<const uint32_t*>(iq4nl_values);
     uint32_t tmp[2];
     const uint32_t low_high_selection_indices = 0x32103210 | ((q4 & 0x88888888) >> 1);
@@ -428,6 +431,7 @@ __device__ __forceinline__ int2 iq4_table_lookup(int q4) {
         tmp[i] = __byte_perm(low, high, low_high_selection_indices >> shift);
     }
     return make_int2(__byte_perm(tmp[0], tmp[1], 0x6420), __byte_perm(tmp[0], tmp[1], 0x7531));
+#endif
 }
 
 // Exact pinned vec_dot_iq4_xs_q8_1: a lane consumes one 32-element subblock,

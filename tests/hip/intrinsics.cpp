@@ -38,6 +38,19 @@ __global__ void packed_probe(uint32_t* results) {
     results[i * 4 + 3] = __byte_perm(a, b, selector(i));
 }
 
+// the IQ4 non-linear table (kvalues_iq4nl), and a q4 word per case: the low 20 bits run through every value of five
+// nibbles, the rest vary
+__device__ __align__(4) int8_t kTable16[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+constexpr int8_t kTable16Host[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+constexpr unsigned kTableCases = 1u << 20;
+__host__ __device__ uint32_t table_q4(unsigned i) { return (i * 0x9e3779b9u & 0xfff00000u) | i; }
+
+__global__ void table16_probe(int2* results) {
+    const unsigned i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= kTableCases) return;
+    results[i] = ::strata::hip_compat::table16_lookup(static_cast<int>(table_q4(i)), kTable16);
+}
+
 __global__ void intrinsic_probe(int* integer_results, float* float_shuffle, double* double_shuffle,
                                 unsigned* ballot, const uint32_t* dot_inputs) {
     const int lane = static_cast<int>(threadIdx.x);
@@ -203,10 +216,30 @@ int main() {
         }
     }
     delete[] host;
+    int2* table = nullptr;
+    CHECK(hipMalloc(reinterpret_cast<void**>(&table), kTableCases * sizeof(int2)));
+    hipLaunchKernelGGL(table16_probe, dim3(kTableCases / 256), dim3(256), 0, 0, table);
+    CHECK(hipDeviceSynchronize());
+    auto* table_host = new int2[kTableCases];
+    CHECK(hipMemcpy(table_host, table, kTableCases * sizeof(int2), hipMemcpyDeviceToHost));
+    CHECK(hipFree(table));
+    for (unsigned i = 0; ok && i < kTableCases; ++i) {
+        const uint32_t q4 = table_q4(i);
+        uint32_t lo = 0, hi = 0;
+        for (int k = 0; k < 4; ++k) {
+            lo |= static_cast<uint32_t>(static_cast<uint8_t>(kTable16Host[(q4 >> (8 * k)) & 15u])) << (8 * k);
+            hi |= static_cast<uint32_t>(static_cast<uint8_t>(kTable16Host[(q4 >> (8 * k + 4)) & 15u])) << (8 * k);
+        }
+        if (static_cast<uint32_t>(table_host[i].x) != lo || static_cast<uint32_t>(table_host[i].y) != hi) {
+            std::fprintf(stderr, "HIP table16 lookup parity failed at q4 0x%08x\n", q4);
+            ok = false;
+        }
+    }
+    delete[] table_host;
     if (!ok) {
         std::fprintf(stderr, "HIP intrinsic parity failed (ballot 0x%08x)\n", ballot);
         return 1;
     }
-    std::puts("HIP intrinsics parity OK: signed dot4/overflow, 65536 packed-byte pairs/permutations, wave32 shuffles, ballot and sleep");
+    std::puts("HIP intrinsics parity OK: signed dot4/overflow, 65536 packed-byte pairs/permutations, 1048576 IQ4 table lookups, wave32 shuffles, ballot and sleep");
     return 0;
 }

@@ -66,6 +66,22 @@ __device__ __forceinline__ uint32_t byte_perm(uint32_t x, uint32_t y, uint32_t s
     return __builtin_amdgcn_perm(y, x, sel);
 }
 
+// The 16-entry signed-byte table lookup of the IQ4 dots (vecdotq.cuh's get_int_from_table_16): x gets the table
+// values of q4's low nibbles (byte k: table[(q4 >> 8k) & 15]), y those of its high nibbles.  CUDA's form is six
+// __byte_perm, each rebuilding its selector here; this is llama.cpp's HIP sequence (Strata #3230): v_perm_b32 takes
+// 3-bit byte indices, so both table halves are looked up and each index's top bit picks between them - 4 perms for
+// the 8 values and 2 to merge, bit-identical.
+__device__ __forceinline__ int2 table16_lookup(int q4, const int8_t* table) {
+    const uint32_t* v32 = reinterpret_cast<const uint32_t*>(table);
+    const uint32_t q_even = static_cast<uint32_t>(q4), q_odd = static_cast<uint32_t>(q4) >> 4;
+    const uint32_t el = __builtin_amdgcn_perm(v32[1], v32[0], q_even & 0x07070707u);
+    const uint32_t ol = __builtin_amdgcn_perm(v32[1], v32[0], q_odd & 0x07070707u);
+    const uint32_t eh = __builtin_amdgcn_perm(v32[3], v32[2], q_even & 0x07070707u);
+    const uint32_t oh = __builtin_amdgcn_perm(v32[3], v32[2], q_odd & 0x07070707u);
+    return make_int2(static_cast<int>(__builtin_amdgcn_perm(eh, el, 0x03020100u | ((q_even & 0x08080808u) >> 1))),
+                     static_cast<int>(__builtin_amdgcn_perm(oh, ol, 0x03020100u | ((q_odd & 0x08080808u) >> 1))));
+}
+
 // The packed byte operations below work on all four lanes at once (SWAR, Hacker's Delight 2-18): gfx11/gfx12 have
 // no packed 8-bit subtract, and a per-lane loop costs the Q3_K/Q6_K dots and the i-quant sign expansion several
 // times the instructions.  kHigh is each lane's top bit.
